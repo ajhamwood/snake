@@ -1,0 +1,243 @@
+<!doctype html>
+<html>
+<head>
+  <title>Snake</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="keywords" content="snake game, snake">
+  <meta name="description" content="Snake game.">
+  <link rel="shortcut icon" href="data:image/png;base64,">
+  <style>
+
+/* Board */
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden }
+#content {
+  width: 100vh;
+  height: 100%;
+  margin-left: calc(50vw - 50vh) }
+@media screen and (max-aspect-ratio: 1/1) {
+  #content {
+    height: 100vw;
+    width: 100%;
+    margin: calc(50vh - 50vw) 0 0 0 } }
+
+/* UI */
+#ui {
+  position: absolute;
+  top: 5px;
+  left: 5px }
+
+#score {
+  position: relative;
+  background: rgba(128, 128, 128, .8);
+  text-align: center;
+  border-radius: .5rem;
+  padding: .3rem;
+  width: 2.5rem;
+  display: inline-block;
+  float: left }
+#ui.restart > #score {
+  border-radius: .5rem 0 0 .5rem }
+
+#play {
+  background-color: rgba(128, 128, 128, .8);
+  border-radius: 0 .5rem .5rem 0;
+  position: relative;
+  float: right;
+  display: none }
+#ui.restart > #play {
+  display: initial }
+#play:hover, #play.active {
+  border-bottom-left-radius: .5rem }
+
+#play:hover > :first-child {
+  border-radius: 0 .5rem 0 0 }
+#play:hover > *, #play.active > * {
+  display: block }
+
+#restart {
+  border: 0;
+  cursor: pointer;
+  padding: .3rem;
+  text-align: center;
+  border-radius: inherit;
+  background: rgba(144, 144, 144, .8) }
+#restart:hover {
+  background: lightgrey }
+
+#restart ~ * {
+  display: none;
+  margin: .3rem .4rem }
+#size-display, #speed-display {
+  cursor: pointer;
+  padding: .3rem .5rem }
+#size-display:hover, #speed-display:hover {
+  background: lightgrey }
+
+.edit > span {
+  display: none }
+#ui input {
+  display: none }
+.edit > input {
+  display: initial !important }
+
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <div id="score"></div>
+    <div id="play">
+      <div id="restart">Restart</div>
+      <div id="size">Size:&nbsp;<span id="size-display"></span><input id="size-field" type="text" /></div>
+      <div id="speed">Speed&nbsp;(ms):&nbsp;<span id="speed-display"></span><input id="speed-field" type="text" /></div>
+    </div>
+  </div>
+  <canvas id="content"></canvas>
+  <script>
+
+// Utilities
+function $ (sel, node) { return Array.prototype.slice.call( (node || document).querySelectorAll(sel) ) }
+
+$.addEvents = function (obj, node) {
+  for (var q in obj) for (var e in obj[q])
+    for (var ns = q ? $(q, node) : [window, document], es = e.split(" "), i = 0; i < es.length; i++)
+      typeof ns === "undefined" || ns.forEach(n => n.addEventListener(es[i], obj[q][e].bind(n)))
+};
+
+
+// Game logic
+var size = 20, speed = 200, score = 0, p, loop, wait = [], board, snake = { head: [], tail: [], dir: -1 },
+    canvas = $("#content")[0], context = canvas.getContext("2d");
+
+function rand () { return Math.floor(size * Math.random()) }
+
+function bval (arr, val) { return typeof val == "undefined" ? board[arr[0]][arr[1]] : (board[arr[0]][arr[1]] = val) }
+
+function endGame () { $("#ui")[0].classList.add("restart") }
+
+function cancelEdit () {
+  this.value = $("span", this.parentNode)[0].innerText;
+  this.parentNode.classList.remove("edit");
+  $("#play")[0].classList.remove("active")
+}
+
+function refreshCanvas () {
+  var view, vw = document.body.clientWidth, vh = document.body.clientHeight;
+  canvas.width = canvas.height = view = vw > vh ? vh : vw;
+  p = view / size;
+  context.fillStyle = "#000";
+  context.fillRect(0, 0, view, view);
+  for (var i = 0, val; i < size; i++) for (var j = 0; j < size; j++)
+    if ((val = board[i][j]) != null) draw(val + 1 ? "#fff" : "#f00", [i, j], val)
+}
+
+function draw (col, [x, y], dir) {
+  function n (z) { return Math.floor(p * (z + 1)) - Math.floor(p * z) }
+  context.fillStyle = col;
+  switch (dir) {
+    case -1: context.fillRect(Math.floor(p * x) + 1, Math.floor(p * y) + 1, n(x) - 2, n(y) - 2); break;
+    case 0: context.fillRect(Math.floor(p * x) - 1, Math.floor(p * y) + 1, n(x), n(y) - 2); break;
+    case 1: context.fillRect(Math.floor(p * x) + 1, Math.floor(p * y) - 1, n(x) - 2, n(y)); break;
+    case 2: context.fillRect(Math.floor(p * x) + 1, Math.floor(p * y) + 1, n(x), n(y) - 2); break;
+    case 3: context.fillRect(Math.floor(p * x) + 1, Math.floor(p * y) + 1, n(x) - 2, n(y)); break;
+    default: context.fillRect(Math.floor(p * x) - 1, Math.floor(p * y) - 1, n(x) + 2, n(y) + 2)
+  }
+}
+
+function loopInit () {
+  function makeFood () {
+    $("#score")[0].innerText = ++score;
+    if (score == size * size) return endGame();
+    while (food = [rand(), rand()], snake.head[0] == food[0] && snake.head[1] == food[1] || bval(food) != null);
+    draw("#f00", food, bval(food, -1))
+  };
+  var t = 0, tnow, food;
+  snake.head = [rand(), rand()];
+  snake.dir = snake.head.concat(snake.head.map(x => size - x)).reduce((a, n, i, ar) => n > ar[a] ? i : a, 0);
+  snake.tail = snake.head.slice();
+  makeFood();
+  return function () {
+    draw("#fff", snake.head, -1);
+    if ((tnow = Math.floor(Date.now() / speed)) > t) {
+      t = tnow;
+      while (wait.length && wait[0] == snake.dir) wait.shift();
+      if (wait.length) {
+        var d = wait.shift();
+        snake.dir == (d + 2) % 4 || (snake.dir = d);
+      }
+      draw("#fff", snake.head, snake.dir);
+      if ((bval(snake.head, snake.dir) > 1 ? ++snake.head[snake.dir % 2] >= size : --snake.head[snake.dir % 2] < 0) ||
+        [null, -1].indexOf(bval(snake.head)) == -1) return endGame();
+      if (bval(snake.head) == -1) makeFood()
+      else {
+        draw("#000", snake.tail)
+        var taildir = bval(snake.tail);
+        bval(snake.tail, null);
+        snake.tail[taildir % 2] += 2 * (taildir > 1) - 1
+      }
+    }
+    requestAnimationFrame(loop)
+  }
+}
+
+
+// Events
+$.addEvents({
+  "": {
+    load: function () {
+      ["size", "speed"].forEach(w => window[w] = parseInt(localStorage.getItem(w)) || window[w]);
+      $("#size-display")[0].innerText = size;
+      $("#speed-display")[0].innerText = speed;
+      board = new Array(size).fill(0).map(() => new Array(size).fill(null));
+      refreshCanvas();
+      (loop = loopInit())()
+    },
+    resize: function (e) {
+      e.stopPropagation();
+      refreshCanvas()
+    },
+    keydown: function (e) {
+      e.stopPropagation();
+      var d = ["ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown"].indexOf(e.key);
+      if (d != -1) wait.push(d);
+    }
+  },
+  "#restart": {
+    click: function () {
+      $("#ui")[0].classList.remove("restart");
+      score = 0;
+      snake = { head: [], tail: [], dir: -1 };
+      board = new Array(size).fill(0).map(() => new Array(size).fill(null));
+      refreshCanvas();
+      loopInit()()
+    }
+  },
+  "#size-display, #speed-display": {
+    click: function () {
+      this.parentNode.classList.add("edit");
+      $("#play")[0].classList.add("active");
+      $("input", this.parentNode)[0].focus()
+    }
+  },
+  "#size-field, #speed-field": {
+    keypress: function (e) {
+      var v = parseInt(this.value);
+      if (e.key == "Enter" && !isNaN(v) && v > 0) {
+        let which = this.id.split("-")[0]
+        localStorage.setItem(which, window[which] = v);
+        $("span", this.parentNode)[0].innerText = v;
+        this.value = v;
+        this.parentNode.classList.remove("edit");
+        $("#play")[0].classList.remove("active");
+      } else if (e.key == "Escape") cancelEdit.bind(this)()
+    },
+    blur: function () { cancelEdit.bind(this)() }
+  }
+})
+
+  </script>
+</body>
+</html>
